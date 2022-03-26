@@ -33,8 +33,8 @@ public class KafkaStreamWeather {
 
         KStream<String, String> inputStream =builder.stream(INPUT_TOPIC);
 
-        WindowedSerializer<String> windowedSerializer = new TimeWindowedSerializer<String>(new StringSerializer());
-        Deserializer<Windowed<String>> windowedDeserializer = new TimeWindowedDeserializer<String>(new StringDeserializer());
+        TimeWindowedSerializer<String> windowedSerializer = new TimeWindowedSerializer<String>(new StringSerializer());
+        TimeWindowedDeserializer<String> windowedDeserializer = new TimeWindowedDeserializer<String>(new StringDeserializer());
         Serde<Windowed<String>> windowedSerde = Serdes.serdeFrom(windowedSerializer, windowedDeserializer);
 
 
@@ -53,13 +53,13 @@ public class KafkaStreamWeather {
 
     dayTempStream
             .groupByKey(with(Serdes.String(),Serdes.Double()))
-            .windowedBy(TimeWindows.of(Duration.ofSeconds(2)))
+            .windowedBy(TimeWindows.of(Duration.ofSeconds(2)).advanceBy(1))
             .aggregate(TempCalculator::new ,(day,temperature,tempCalculator) -> {
 
                 try {
-
-                    tempCalculator.incrementCounter();
-                    tempCalculator.addSum(temperature);
+                   // tempCalculator.incrementCounter();
+                   // tempCalculator.addSum(temperature);
+                    tempCalculator.Temp(temperature);
                     return tempCalculator;
                 } catch (Exception e) {
                     System.err.println(e.getMessage());
@@ -68,7 +68,7 @@ public class KafkaStreamWeather {
             }, Materialized.with(Serdes.String(),CustomSerdes.instance()))
             .toStream()
             .peek((key, value) -> System.out.println("Outgoing record - key " +key +" value " + value))
-            .mapValues((day,tempCalculator) -> tempCalculator.getAvg())
+            .mapValues((day,tempCalculator) -> tempCalculator.getMin())
             .to(OUTPUT_TOPIC,Produced.with(windowedSerde,Serdes.Double()));
 
     }
@@ -132,11 +132,13 @@ public class KafkaStreamWeather {
     static class TempCalculator{
         Integer count;
         Double sum;
-        Integer min=-1000;
+        static Double min=1000.0;
+        static Double max=-1000.0;
 
         public TempCalculator(){
             count=0;
             sum=0.0;
+
         }
 
         public Double getSum(){
@@ -149,6 +151,7 @@ public class KafkaStreamWeather {
         @JsonIgnore
         public double getAvg(){
 
+            System.out.println("Sum "+sum+"Count"+count );
             if(count !=0)
                 return sum/count;
             else{
@@ -157,6 +160,23 @@ public class KafkaStreamWeather {
             }
         }
 
+        @JsonIgnore
+        public double getMin(){
+
+           // if(min>temp)min=temp;
+
+            return min;
+        }
+
+        @JsonIgnore
+        public double getMax(){
+
+            //System.out.println("Max "+max+"Temp"+temp );
+           // if(this.max<this.temp)this.max=this.temp;
+
+            return max;
+
+        }
 
         @JsonIgnore
         public void incrementCounter(){
@@ -165,6 +185,17 @@ public class KafkaStreamWeather {
         @JsonIgnore
         public void addSum(Double sum){
             this.sum +=sum;
+            System.out.println("Sum "+sum);
+        }
+
+        @JsonIgnore
+        public void Temp(Double temp){
+
+          //  System.out.println("Temp"+temp +"Max"+max);
+            max=Math.max(max,temp);
+            min=Math.min(min,temp);
+           // System.out.println("Temp"+temp +"Max"+max);
+
         }
 
     }
